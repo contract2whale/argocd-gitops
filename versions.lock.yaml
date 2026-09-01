@@ -1,0 +1,11 @@
+schemaVersion: 1
+verifiedAt: "2026-09-01"
+
+delivery:
+  helmCli: "4.2.4"
+  argoCdController: "3.5.2"
+  argoRolloutsController: "1.9.1"
+  gatewayApi: "1.6.0"
+  gatewayApiTrafficRouterPlugin: "0.16.0"
+  externalSecretsChart: "2.10.0"
+  awsLoadBalancerController: "3.5.0"

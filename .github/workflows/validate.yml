@@ -1,0 +1,53 @@
+name: validate
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: validate
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Set up Helm
+        uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4
+        with:
+          version: v4.2.4
+
+      - name: Lint chart for both environments
+        run: |
+          helm lint charts/sample-app -f envs/dev/values.yaml
+          helm lint charts/sample-app -f envs/prod/values.yaml
+
+      - name: Render and assert environment contracts
+        run: |
+          helm template sample-app charts/sample-app -f envs/dev/values.yaml > /tmp/dev.yaml
+          helm template sample-app charts/sample-app -f envs/prod/values.yaml > /tmp/prod.yaml
+
+          grep -q '^kind: Deployment$' /tmp/dev.yaml
+          ! grep -q '^kind: Rollout$' /tmp/dev.yaml
+          grep -q '^kind: Rollout$' /tmp/prod.yaml
+          grep -q 'sigv4:' /tmp/prod.yaml
+          ! grep -q 'aws-sigv4-proxy' /tmp/prod.yaml
+
+      - name: Build environment bootstraps
+        run: |
+          kubectl kustomize argocd/bootstrap/dev > /tmp/bootstrap-dev.yaml
+          kubectl kustomize argocd/bootstrap/prod > /tmp/bootstrap-prod.yaml
+          grep -q '^kind: ApplicationSet$' /tmp/bootstrap-dev.yaml
+          grep -q '^kind: ApplicationSet$' /tmp/bootstrap-prod.yaml
+
+      - name: Reject mutable image tags and retired components
+        run: |
+          ! grep -R --line-number --fixed-strings 'image.tag' charts envs argocd
+          ! grep -R --line-number --fixed-strings 'ingress-nginx' charts envs argocd
+          ! grep -R --line-number --fixed-strings 'aws-sigv4-proxy' charts envs argocd
