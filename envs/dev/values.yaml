@@ -1,0 +1,39 @@
+environment: dev
+
+namespace:
+  name: app-dev
+  labels:
+    gateway-access: "true"
+    environment: dev
+
+image:
+  repository: "123456789012.dkr.ecr.us-east-1.amazonaws.com/playdevops/sample-app"
+  digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+
+workload:
+  kind: Deployment
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 4
+  targetCPUUtilizationPercentage: 70
+
+podDisruptionBudget:
+  enabled: false
+
+externalSecrets:
+  enabled: true
+  awsRegion: us-east-1
+  readerRoleArn: "arn:aws:iam::123456789012:role/dev-playdevops-external-secrets-reader-role"
+  remoteSecretName: "sample-app/dev/app-secrets"
+
+gateway:
+  enabled: true
+  hostname: "sample-app.dev.example.com"
+  httpEnabled: true
+  httpsEnabled: false
+
+rollout:
+  analysis:
+    enabled: false
