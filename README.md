@@ -1,3 +1,79 @@
+# Argo CD GitOps — dev/prod 배포 상태 저장소
+
+이 저장소는 애플리케이션 소스가 아니라 EKS에 배포할 **원하는 상태(desired state)** 를
+보관합니다. dev와 prod는 같은 Helm chart를 사용하지만, dev는 `Deployment`, prod는
+`Rollout`으로 렌더링됩니다. 이미지 tag는 허용하지 않고 multi-architecture image index
+digest만 사용합니다.
+
+## 핵심 구조
+
+```text
+charts/sample-app/              공통 Helm chart
+├── templates/workload.yaml     Deployment 또는 Rollout
+├── templates/gateway.yaml      AWS LBC Gateway API + HTTPRoute
+└── templates/analysistemplate.yaml
+
+envs/dev/values.yaml            자동 배포, RollingUpdate
+envs/prod/values.yaml           승인된 PR, Canary + AMP 분석
+
+argocd/bootstrap/dev/           dev 클러스터만 읽는 root 구성
+argocd/bootstrap/prod/          prod 클러스터만 읽는 root 구성
+```
+
+이 그림에서 봐야 할 핵심은 **클러스터마다 자기 bootstrap 경로만 읽는다**는 점입니다.
+dev Argo CD가 실수로 prod values를 배포하거나, prod Argo CD가 dev 자동화 정책을 상속하지
+않도록 경계를 나눴습니다.
+
+## 처음 한 번 바꿀 값
+
+다음 placeholder는 계정과 저장소가 만들어진 뒤 실제 값으로 교체합니다.
+
+- `123456789012`: AWS 계정 ID
+- `example.com`: Route53 도메인
+- `ws-REPLACE_ME`: 각 클러스터의 AMP workspace ID
+- `REPLACE_ME`: GitHub owner/team과 GitOps repository URL
+- `sha256:000...000`: CI가 처음 빌드한 multi-arch index digest
+
+검색 명령:
+
+```bash
+rg -n '123456789012|example\.com|REPLACE_ME|sha256:0{64}' .
+```
+
+## 로컬 검증
+
+```bash
+helm lint charts/sample-app -f envs/dev/values.yaml
+helm lint charts/sample-app -f envs/prod/values.yaml
+
+helm template sample-app charts/sample-app -f envs/dev/values.yaml > /tmp/dev.yaml
+helm template sample-app charts/sample-app -f envs/prod/values.yaml > /tmp/prod.yaml
+
+kubectl kustomize argocd/bootstrap/dev > /tmp/bootstrap-dev.yaml
+kubectl kustomize argocd/bootstrap/prod > /tmp/bootstrap-prod.yaml
+```
+
+정상 결과는 dev 렌더에 `Deployment`만, prod 렌더에 `Rollout`과 native `sigv4`가
+나오는 것입니다.
+
+## 운영 계약
+
+- dev: application code PR merge → build/push → dev digest PR → validate → auto-merge → Argo CD auto-sync
+- prod: dev에서 검증한 **동일 digest** → prod promotion PR → CODEOWNERS 승인/merge → Argo CD auto-sync → Rollouts Canary
+- HPA 활성화 시 workload의 `spec.replicas`를 렌더하지 않습니다.
+- 카나리 중 `HTTPRoute.spec.rules`는 Rollouts plugin이 변경합니다. 해당 라벨이 있는 동안만 Argo CD가 차이를 무시합니다.
+- AMP 조회는 Rollouts native SigV4를 사용합니다. `aws-sigv4-proxy`는 설치하지 않습니다.
+- 분석은 Rollouts의 `podTemplateHashValue: Latest`를 받아 최신 ReplicaSet 지표만 조회합니다.
+- 카나리 request rate가 `minimumRequestRate`보다 작으면 성공률이 높더라도 승격하지 않습니다.
+
+## GitHub 보호 규칙
+
+`.github/CODEOWNERS`와 `docs/github-ruleset.example.json`을 실제 owner/team으로 바꾼 뒤 main
+branch에 적용합니다. dev digest PR은 validation 성공 뒤 자동 merge할 수 있지만 prod 경로는
+CODEOWNERS 승인을 요구합니다. GitHub App push가 validation을 한 번 실행하는 것은 정상이며,
+`envs/dev/**`를 `paths-ignore`하거나 `[skip ci]`로 검증을 건너뛰지 않습니다.
+
+
 # ArgoCD GitOps
 
 Kubernetes manifest repository implementing the GitOps pattern with ArgoCD ApplicationSet, Git File Generator, Kustomize overlays, and automated deployment pipelines.
@@ -21,69 +97,4 @@ Single `bootstrap.yaml` manages all ApplicationSets, which auto-generate per-env
 | 3 | exchange-settlement | Application workloads |
 | 4 | ArgoCD Ingress | ArgoCD UI access routes |
 
-### Environment Configuration
 
-All environment-specific values are centralized in JSON config files:
-
-```
-argocd/appsets/envs/
-├── dev.json    # Dev: automated sync, minimal resources, webhook disabled
-└── prod.json   # Prod: manual sync, HA resources, webhook enabled
-```
-
-Adding a new environment (e.g., staging) requires only:
-
-1. `argocd/appsets/envs/staging.json`
-2. `argocd/projects/staging-project.yaml`
-3. `kustomize/overlays/staging/`
-4. `argocd/manifests/staging/argocd-ingress/`
-
-## Deployment Verification
-
-```bash
-# Check bootstrap and ApplicationSets
-kubectl get application bootstrap -n argocd
-kubectl get applicationsets -n argocd
-
-# Check all generated Applications
-kubectl get applications -n argocd
-
-# Expected output:
-# NAME                       SYNC STATUS   HEALTH STATUS
-# bootstrap                  Synced        Healthy
-# exchange-settlement-dev    Synced        Healthy
-# exchange-settlement-prod   Synced        Healthy
-# external-secrets-dev       Synced        Healthy
-# external-secrets-prod      Synced        Healthy
-# ingress-nginx-dev          Synced        Healthy
-# ingress-nginx-prod         Synced        Healthy
-# argocd-ingress-dev         Synced        Healthy
-# argocd-ingress-prod        Synced        Healthy
-
-# Check app pods
-kubectl get pods -n app-dev
-kubectl get pods -n app-prod
-
-# Check deployed image tag
-kubectl get pods -n app-dev -o jsonpath='{.items[0].spec.containers[0].image}'
-
-# Verify security headers applied by ingress-nginx
-curl -sI https://playbuilder.xyz | grep -iE "strict-transport|x-frame|x-content-type"
-```
-
-## Tech Stack
-
-| Component                 | Version       | Purpose                             |
-| ------------------------- | ------------- | ----------------------------------- |
-| ArgoCD                    | 7.7.16 (Helm) | GitOps continuous delivery          |
-| ArgoCD ApplicationSet     | v2.9+         | Multi-env Application generation    |
-| Kustomize                 | 5.4.3         | Manifest templating with overlays   |
-| External Secrets Operator | 0.14.2        | AWS Secrets Manager → K8s Secrets   |
-| Ingress-NGINX             | 4.11.3        | Kubernetes ingress controller + NLB |
-
-## Related Repositories
-
-| Repository                                                                               | Purpose                               |
-| ---------------------------------------------------------------------------------------- | ------------------------------------- |
-| [eks-terraform-provisioning](https://github.com/play-builder/eks-terraform-provisioning) | EKS infrastructure (Terraform)        |
-| [exchange-settlement-app](https://github.com/play-builder/exchange-settlement-app)       | Node.js application + CI/CD workflows |
