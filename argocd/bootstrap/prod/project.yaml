@@ -1,0 +1,25 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: course-prod
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  description: Course applications allowed in the production cluster only
+  sourceRepos:
+    - "https://github.com/REPLACE_ME/argocd-gitops.git"
+    - "https://charts.external-secrets.io"
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: app-prod
+    - server: https://kubernetes.default.svc
+      namespace: external-secrets
+  clusterResourceWhitelist:
+    - group: "*"
+      kind: "*"
+  namespaceResourceWhitelist:
+    - group: "*"
+      kind: "*"
+  orphanedResources:
+    warn: true

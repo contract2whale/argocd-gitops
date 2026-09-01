@@ -1,0 +1,51 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: sample-app-dev
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - list:
+        elements:
+          - environment: dev
+            namespace: app-dev
+            valuesFile: envs/dev/values.yaml
+  template:
+    metadata:
+      name: "sample-app-{{ .environment }}"
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+    spec:
+      project: course-dev
+      source:
+        repoURL: https://github.com/REPLACE_ME/argocd-gitops.git
+        targetRevision: main
+        path: charts/sample-app
+        helm:
+          releaseName: sample-app
+          valueFiles:
+            - "../../{{ .valuesFile }}"
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: "{{ .namespace }}"
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        managedNamespaceMetadata:
+          labels:
+            gateway-access: "true"
+            environment: "{{ .environment }}"
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+          - RespectIgnoreDifferences=true
+      ignoreDifferences:
+        - group: gateway.networking.k8s.io
+          kind: HTTPRoute
+          jqPathExpressions:
+            - 'select(.metadata.labels["rollouts.argoproj.io/gatewayapi-canary"] == "in-progress") | .spec.rules'
