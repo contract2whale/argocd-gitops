@@ -73,28 +73,5 @@ branch에 적용합니다. dev digest PR은 validation 성공 뒤 자동 merge�
 CODEOWNERS 승인을 요구합니다. GitHub App push가 validation을 한 번 실행하는 것은 정상이며,
 `envs/dev/**`를 `paths-ignore`하거나 `[skip ci]`로 검증을 건너뛰지 않습니다.
 
-
-# ArgoCD GitOps
-
-Kubernetes manifest repository implementing the GitOps pattern with ArgoCD ApplicationSet, Git File Generator, Kustomize overlays, and automated deployment pipelines.
-
-## Gitops Flow
-
-![Gitops Flow](./images/gitops-flow.png)
-
-## Architecture
-
-### ApplicationSet + Git File Generator
-
-Single `bootstrap.yaml` manages all ApplicationSets, which auto-generate per-environment Applications from JSON config files.
-
-### Sync Wave Order
-
-| Wave | Component | Purpose |
-
-| 1 | External Secrets Operator | CRDs + Controller + IRSA |
-| 2 | Ingress NGINX | Load balancer + Security headers |
-| 3 | exchange-settlement | Application workloads |
-| 4 | ArgoCD Ingress | ArgoCD UI access routes |
-
-
+실제 클러스터 검증 전에는 이 저장소를 배포 완료로 간주하지 않습니다. `Gateway`의
+`Programmed=True`, `ExternalSecret Ready=True`, `AnalysisRun Successful`을 각각 확인해야 합니다.
