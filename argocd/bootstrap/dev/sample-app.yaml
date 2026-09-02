@@ -45,6 +45,10 @@ spec:
           - ServerSideApply=true
           - RespectIgnoreDifferences=true
       ignoreDifferences:
+        - group: ""
+          kind: Service
+          jqPathExpressions:
+            - '.spec.selector["rollouts-pod-template-hash"]'
         - group: gateway.networking.k8s.io
           kind: HTTPRoute
           jqPathExpressions:

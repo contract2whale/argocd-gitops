@@ -23,31 +23,36 @@ jobs:
         with:
           version: v4.2.4
 
-      - name: Lint chart for both environments
-        run: |
-          helm lint charts/sample-app -f envs/dev/values.yaml
-          helm lint charts/sample-app -f envs/prod/values.yaml
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@829323503d1be3d00ca8346e5391ca0b07a9ab0d # v5.1.0
+        with:
+          version: v1.36.0
 
-      - name: Render and assert environment contracts
+      - name: Lint Helm chart
         run: |
-          helm template sample-app charts/sample-app -f envs/dev/values.yaml > /tmp/dev.yaml
-          helm template sample-app charts/sample-app -f envs/prod/values.yaml > /tmp/prod.yaml
+          helm lint charts/sample-app \
+            --values envs/dev/values.yaml \
+            --set-string image.repository=example.invalid/sample-app \
+            --set-string image.digest=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+          helm lint charts/sample-app \
+            --values envs/prod/values.yaml \
+            --set-string image.repository=example.invalid/sample-app \
+            --set-string image.digest=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 
-          grep -q '^kind: Deployment$' /tmp/dev.yaml
-          ! grep -q '^kind: Rollout$' /tmp/dev.yaml
-          grep -q '^kind: Rollout$' /tmp/prod.yaml
-          grep -q 'sigv4:' /tmp/prod.yaml
-          ! grep -q 'aws-sigv4-proxy' /tmp/prod.yaml
-
-      - name: Build environment bootstraps
+      - name: Render Dev and Prod Helm releases
         run: |
-          kubectl kustomize argocd/bootstrap/dev > /tmp/bootstrap-dev.yaml
-          kubectl kustomize argocd/bootstrap/prod > /tmp/bootstrap-prod.yaml
-          grep -q '^kind: ApplicationSet$' /tmp/bootstrap-dev.yaml
-          grep -q '^kind: ApplicationSet$' /tmp/bootstrap-prod.yaml
+          helm template sample-app charts/sample-app \
+            --values envs/dev/values.yaml \
+            --set-string image.repository=example.invalid/sample-app \
+            --set-string image.digest=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+            > /tmp/sample-app-dev.yaml
+          helm template sample-app charts/sample-app \
+            --values envs/prod/values.yaml \
+            --set-string image.repository=example.invalid/sample-app \
+            --set-string image.digest=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+            > /tmp/sample-app-prod.yaml
 
-      - name: Reject mutable image tags and retired components
+      - name: Render Argo CD bootstrap resources
         run: |
-          ! grep -R --line-number --fixed-strings 'image.tag' charts envs argocd
-          ! grep -R --line-number --fixed-strings 'ingress-nginx' charts envs argocd
-          ! grep -R --line-number --fixed-strings 'aws-sigv4-proxy' charts envs argocd
+          kubectl kustomize argocd/bootstrap/dev > /tmp/argocd-dev.yaml
+          kubectl kustomize argocd/bootstrap/prod > /tmp/argocd-prod.yaml

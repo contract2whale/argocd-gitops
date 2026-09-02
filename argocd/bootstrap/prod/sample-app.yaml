@@ -33,9 +33,6 @@ spec:
         server: https://kubernetes.default.svc
         namespace: "{{ .namespace }}"
       syncPolicy:
-        automated:
-          prune: true
-          selfHeal: true
         managedNamespaceMetadata:
           labels:
             gateway-access: "true"
@@ -45,6 +42,10 @@ spec:
           - ServerSideApply=true
           - RespectIgnoreDifferences=true
       ignoreDifferences:
+        - group: ""
+          kind: Service
+          jqPathExpressions:
+            - '.spec.selector["rollouts-pod-template-hash"]'
         - group: gateway.networking.k8s.io
           kind: HTTPRoute
           jqPathExpressions:
